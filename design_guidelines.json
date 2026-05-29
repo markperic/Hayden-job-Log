@@ -1,0 +1,120 @@
+{
+  "project_name": "The Hayden Shared-Service Tracker",
+  "theme_and_archetype": {
+    "theme": "Light",
+    "archetype": "4 (Swiss & High-Contrast)",
+    "reasoning": "A B2B shared workspace tracker requires authority, functional clarity, and objective precision. A Swiss Brutalist approach with Stark White, Deep Charcoal, and two high-contrast primary colors ensures quick legibility on mobile devices."
+  },
+  "colors": {
+    "background": {
+      "default": "#F7F7F7",
+      "surface": "#FFFFFF",
+      "inverse": "#111111"
+    },
+    "text": {
+      "primary": "#111111",
+      "secondary": "#5E5E5E",
+      "inverse": "#FFFFFF",
+      "muted": "#A1A1AA"
+    },
+    "border": {
+      "default": "#E5E5E5",
+      "focus": "#111111"
+    },
+    "brand": {
+      "hayden_andrews": {
+        "primary": "#E52B12",
+        "bg_soft": "#FEE2E2",
+        "label": "Print / Frame (Hayden A.)"
+      },
+      "hayden_bone": {
+        "primary": "#002FA7",
+        "bg_soft": "#DBEAFE",
+        "label": "Scanner (Hayden B.)"
+      }
+    },
+    "status": {
+      "discount": "#10B981"
+    }
+  },
+  "fonts": {
+    "heading": "Cabinet Grotesk",
+    "body": "Work Sans",
+    "mono": "IBM Plex Mono",
+    "fallbacks": {
+      "heading": "ui-sans-serif, system-ui, sans-serif",
+      "body": "ui-sans-serif, system-ui, sans-serif",
+      "mono": "ui-monospace, SFMono-Regular, monospace"
+    }
+  },
+  "typography_rules": {
+    "h1": "text-3xl font-black tracking-tighter leading-none",
+    "h2": "text-2xl font-bold tracking-tight",
+    "h3": "text-lg font-bold tracking-tight",
+    "body": "text-base font-normal leading-relaxed",
+    "label": "text-xs font-bold uppercase tracking-[0.1em] text-[#5E5E5E]",
+    "money": "font-mono font-medium tracking-tight",
+    "general": "Never use pure black or grey without intent. Ensure monetary values use 'tabular-nums' for alignment."
+  },
+  "layout_and_spacing": {
+    "philosophy": "Control Room Grid. Mobile-first, dense but highly structured. Everything is optical and geometric.",
+    "container": "w-full max-w-md mx-auto px-4 py-6 flex flex-col gap-6",
+    "card": "bg-white border border-[#E5E5E5] rounded-none p-5",
+    "gap": {
+      "tight": "gap-2",
+      "standard": "gap-4",
+      "loose": "gap-8"
+    }
+  },
+  "components": {
+    "acting_as_toggle": {
+      "description": "Segmented control to switch active user.",
+      "style": "Flex container with 1px border. Active state changes background to the respective user's primary color (Red for Andrews, Blue for Bone) and text to white. Inactive is white background with grey text.",
+      "testid": "acting-as-toggle"
+    },
+    "quick_log_form": {
+      "description": "Dense form for logging jobs.",
+      "inputs": "Flat inputs, 1px border-[#E5E5E5], rounded-none, h-12 px-4. Focus state: border-[#111111] ring-1 ring-[#111111] outline-none.",
+      "button": "h-12 w-full bg-[#111111] text-white font-bold uppercase tracking-widest text-sm active:scale-[0.98] transition-transform",
+      "testid_prefix": "log-job"
+    },
+    "live_jobs_ledger": {
+      "description": "List of logged jobs for the month.",
+      "item_style": "flex flex-col py-4 border-b border-[#E5E5E5] last:border-b-0",
+      "layout": "Row 1: Service Name (left, bold) and Final Cost (right, mono). Row 2: Date (left, text-xs), User Badge (left, small pill), Discount (right, text-xs text-[#10B981]).",
+      "user_badge": "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-sm",
+      "testid_prefix": "ledger"
+    },
+    "monthly_tally_card": {
+      "description": "Financial summary card showing who owes who.",
+      "style": "bg-[#111111] text-white p-6 rounded-none flex flex-col gap-4 border-l-4",
+      "dynamic_border": "If Andrews owes, border-l color is #E52B12. If Bone owes, border-l color is #002FA7.",
+      "layout": "Top: 'Net Balance' label. Middle: Large Mono font showing the owing amount. Bottom: Subtext stating exactly who owes who.",
+      "testid": "monthly-tally"
+    }
+  },
+  "interactions_and_motion": {
+    "buttons": "active:scale-[0.98] transition-transform duration-100 ease-out",
+    "list_items": "animate-in slide-in-from-bottom-2 fade-in duration-200"
+  },
+  "accessibility": {
+    "contrast": "All text must pass WCAG AA. White text on Red/Blue brand colors must be tested. Dark grey on off-white used for secondary text.",
+    "focus": "Visible focus rings on all form inputs and interactive elements.",
+    "test_ids": "All interactive elements MUST have data-testid attributes (e.g., data-testid='log-job-submit-button')."
+  },
+  "media": {
+    "avatars": [
+      {
+        "category": "Hayden Andrews Avatar",
+        "url": "https://static.prod-images.emergentagent.com/jobs/317cf10a-b416-48a2-8c58-ccdbed510f7f/images/a2bcbc00b0d5c89e45ade35ab40108481381c24b7cd6e8d1e7c911d5b5db29cd.png",
+        "description": "Abstract red geometric avatar for Hayden Andrews"
+      },
+      {
+        "category": "Hayden Bone Avatar",
+        "url": "https://static.prod-images.emergentagent.com/jobs/317cf10a-b416-48a2-8c58-ccdbed510f7f/images/8e57f4f50afbf726c3b43247561b41044e48353e9a47117b86e680549a96e74c.png",
+        "description": "Abstract blue geometric avatar for Hayden Bone"
+      }
+    ],
+    "instructions_to_main_agent": "Use these avatars in the 'Acting As' toggle or in the ledger rows to reinforce visual identification without relying solely on text. Do not use placeholder images."
+  }
+}
