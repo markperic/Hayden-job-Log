@@ -27,7 +27,9 @@ const firebaseConfig = {
 };
 
 const app = getApps()[0] ?? initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// Named database (created in GCP console as "haydens-job-tracker" rather than
+// the auto "(default)"). Pass the id as the 2nd arg to getFirestore.
+export const db = getFirestore(app, "haydens-job-tracker");
 
 // ---- Domain --------------------------------------------------------------
 export const USER_ANDREWS = "Hayden Andrews";
