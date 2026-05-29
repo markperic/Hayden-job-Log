@@ -13,7 +13,24 @@ A single-screen Expo mobile dashboard for two business owners (Hayden Andrews an
 - Owner uses other Hayden's service → 20% wholesale discount.
 - `final_cost = base_price * (1 - discount/100)`, rounded to 2 decimals.
 
-## Data Model (MongoDB `jobs` collection)
+## Storage (Cloud Firestore — direct from device)
+- **No backend.** The Expo app talks directly to Google Firestore using the modular Firebase JS SDK from `/app/frontend/src/firebase.ts`.
+- Firebase project: `hayden-job-tracker`; named Firestore database: `haydens-job-tracker`.
+- `experimentalAutoDetectLongPolling: true` is enabled to survive proxied environments and React Native transport quirks.
+- Security rules (open for prototype; tighten before broad release):
+  ```
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+  ```
+- The FastAPI/MongoDB backend in `/app/backend` is no longer required by the app and can be deleted once GitHub Pages is the target.
+
+## Data Model (Firestore `jobs` collection)
 | Field | Type | Notes |
 |---|---|---|
 | id | str (uuid) | Primary key |
