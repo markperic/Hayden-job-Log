@@ -4,12 +4,12 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -20,31 +20,29 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 
-const API_BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
-
-// --- Domain constants ---------------------------------------------------------
-const USER_ANDREWS = "Hayden Andrews";
-const USER_BONE = "Hayden Bone";
-
-const SERVICES = [
-  "Picture Framing",
-  "Large Format Printing",
-  "Large Format Scanning",
-] as const;
-type Service = (typeof SERVICES)[number];
-
-const SERVICE_OWNER: Record<Service, string> = {
-  "Picture Framing": USER_ANDREWS,
-  "Large Format Printing": USER_ANDREWS,
-  "Large Format Scanning": USER_BONE,
-};
+import {
+  archiveMonth as fsArchiveMonth,
+  createJob as fsCreateJob,
+  deleteJob as fsDeleteJob,
+  exportCsv as fsExportCsv,
+  getSummary as fsGetSummary,
+  listJobs as fsListJobs,
+  listMonths as fsListMonths,
+  monthKey,
+  SERVICE_OWNER,
+  SERVICES,
+  USER_ANDREWS,
+  USER_BONE,
+  type Job,
+  type Service,
+  type Summary,
+} from "@/src/firebase";
 
 const ANDREWS_AVATAR =
   "https://static.prod-images.emergentagent.com/jobs/317cf10a-b416-48a2-8c58-ccdbed510f7f/images/a2bcbc00b0d5c89e45ade35ab40108481381c24b7cd6e8d1e7c911d5b5db29cd.png";
 const BONE_AVATAR =
   "https://static.prod-images.emergentagent.com/jobs/317cf10a-b416-48a2-8c58-ccdbed510f7f/images/8e57f4f50afbf726c3b43247561b41044e48353e9a47117b86e680549a96e74c.png";
 
-// --- Theme --------------------------------------------------------------------
 const C = {
   bg: "#F7F7F7",
   surface: "#FFFFFF",
@@ -60,31 +58,6 @@ const C = {
   discount: "#10B981",
 };
 
-// --- Types --------------------------------------------------------------------
-type Job = {
-  id: string;
-  user: string;
-  service: Service;
-  base_price: number;
-  discount_percent: number;
-  final_cost: number;
-  notes: string;
-  date: string;
-  month: string;
-  archived: boolean;
-};
-
-type Summary = {
-  month: string;
-  total_andrews: number;
-  total_bone: number;
-  net_balance: number;
-  debtor: string | null;
-  creditor: string | null;
-  job_count: number;
-};
-
-// --- Helpers ------------------------------------------------------------------
 const fmtMoney = (n: number) =>
   `$${Number(n).toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -101,10 +74,7 @@ const fmtDate = (iso: string) => {
   });
 };
 
-const currentMonthKey = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-};
+const currentMonthKey = () => monthKey();
 
 const fmtMonthLabel = (m: string) => {
   if (!m) return "";
@@ -114,13 +84,28 @@ const fmtMonthLabel = (m: string) => {
 };
 
 const colorForUser = (u: string) => (u === USER_ANDREWS ? C.andrews : C.bone);
-const softForUser = (u: string) =>
-  u === USER_ANDREWS ? C.andrewsSoft : C.boneSoft;
-const avatarForUser = (u: string) =>
-  u === USER_ANDREWS ? ANDREWS_AVATAR : BONE_AVATAR;
+const softForUser = (u: string) => (u === USER_ANDREWS ? C.andrewsSoft : C.boneSoft);
+const avatarForUser = (u: string) => (u === USER_ANDREWS ? ANDREWS_AVATAR : BONE_AVATAR);
 const shortUser = (u: string) => (u === USER_ANDREWS ? "ANDREWS" : "BONE");
 
-// --- Component ----------------------------------------------------------------
+function downloadCsvOnWeb(filename: string, csv: string) {
+  // Web only — runs only when Platform.OS === "web".
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  // eslint-disable-next-line no-undef
+  const url = URL.createObjectURL(blob);
+  // eslint-disable-next-line no-undef
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  // eslint-disable-next-line no-undef
+  document.body.appendChild(a);
+  a.click();
+  // eslint-disable-next-line no-undef
+  document.body.removeChild(a);
+  // eslint-disable-next-line no-undef
+  URL.revokeObjectURL(url);
+}
+
 export default function Index() {
   const [actingAs, setActingAs] = useState<string>(USER_ANDREWS);
   const [service, setService] = useState<Service>("Picture Framing");
@@ -141,10 +126,10 @@ export default function Index() {
 
   const isCurrentMonth = selectedMonth === currentMonthKey();
 
-  // --- Discount preview based on current selection
-  const previewDiscount = useMemo(() => {
-    return SERVICE_OWNER[service] === actingAs ? 0 : 20;
-  }, [actingAs, service]);
+  const previewDiscount = useMemo(
+    () => (SERVICE_OWNER[service] === actingAs ? 0 : 20),
+    [actingAs, service],
+  );
 
   const previewFinal = useMemo(() => {
     const n = parseFloat(basePrice);
@@ -152,22 +137,23 @@ export default function Index() {
     return n * (1 - previewDiscount / 100);
   }, [basePrice, previewDiscount]);
 
-  // --- Data fetching
   const loadAll = useCallback(async (month: string) => {
     try {
-      const [jobsRes, sumRes, monthsRes] = await Promise.all([
-        fetch(`${API_BASE}/jobs?month=${month}`),
-        fetch(`${API_BASE}/summary?month=${month}`),
-        fetch(`${API_BASE}/months`),
+      const [jobsData, sumData, monthsData] = await Promise.all([
+        fsListJobs({ month }),
+        fsGetSummary(month),
+        fsListMonths(),
       ]);
-      const jobsData = await jobsRes.json();
-      const sumData = await sumRes.json();
-      const monthsData = await monthsRes.json();
-      setJobs(Array.isArray(jobsData) ? jobsData : []);
+      setJobs(jobsData);
       setSummary(sumData);
-      setMonths(monthsData.months ?? [currentMonthKey()]);
-    } catch (e) {
+      setMonths(monthsData);
+    } catch (e: any) {
       console.warn("loadAll error", e);
+      Alert.alert(
+        "Could not reach Firestore",
+        String(e?.message ?? e) +
+          "\n\nCheck that the Firestore database is created and security rules allow reads.",
+      );
     }
   }, []);
 
@@ -185,7 +171,6 @@ export default function Index() {
     setRefreshing(false);
   }, [loadAll, selectedMonth]);
 
-  // --- Actions
   const submitJob = async () => {
     const n = parseFloat(basePrice);
     if (Number.isNaN(n) || n <= 0) {
@@ -194,30 +179,20 @@ export default function Index() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user: actingAs,
-          service,
-          base_price: n,
-          notes,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err);
-      }
+      await fsCreateJob({ user: actingAs, service, base_price: n, notes });
       setBasePrice("");
       setNotes("");
-      // Switch view to current month so the new job is visible
       if (!isCurrentMonth) {
         setSelectedMonth(currentMonthKey());
       } else {
         await loadAll(selectedMonth);
       }
     } catch (e: any) {
-      Alert.alert("Could not log job", String(e?.message ?? e));
+      Alert.alert(
+        "Could not log job",
+        String(e?.message ?? e) +
+          "\n\nIf this is a permission error, open the Firebase console → Firestore → Rules and allow writes (test mode).",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -231,7 +206,7 @@ export default function Index() {
         style: "destructive",
         onPress: async () => {
           try {
-            await fetch(`${API_BASE}/jobs/${id}`, { method: "DELETE" });
+            await fsDeleteJob(id);
             await loadAll(selectedMonth);
           } catch (e) {
             console.warn(e);
@@ -239,29 +214,6 @@ export default function Index() {
         },
       },
     ]);
-  };
-
-  const exportCsv = async (scope: string) => {
-    // scope is "all" or a YYYY-MM string
-    const url = `${API_BASE}/jobs/export?month=${encodeURIComponent(scope)}`;
-    try {
-      if (Platform.OS === "web") {
-        // Trigger a download in a new tab — Content-Disposition handles the rest
-        // eslint-disable-next-line no-undef
-        window.open(url, "_blank");
-      } else {
-        const can = await Linking.canOpenURL(url);
-        if (can) {
-          await Linking.openURL(url);
-        } else {
-          Alert.alert("Cannot open URL", "Unable to start the CSV download.");
-        }
-      }
-    } catch (e: any) {
-      Alert.alert("Export failed", String(e?.message ?? e));
-    } finally {
-      setExportPickerOpen(false);
-    }
   };
 
   const archiveMonth = () => {
@@ -275,10 +227,7 @@ export default function Index() {
           style: "destructive",
           onPress: async () => {
             try {
-              await fetch(
-                `${API_BASE}/jobs/archive?month=${currentMonthKey()}`,
-                { method: "POST" },
-              );
+              await fsArchiveMonth(currentMonthKey());
               await loadAll(selectedMonth);
             } catch (e) {
               console.warn(e);
@@ -289,7 +238,21 @@ export default function Index() {
     );
   };
 
-  // --- Render ----------------------------------------------------------------
+  const exportCsv = async (scope: string) => {
+    setExportPickerOpen(false);
+    try {
+      const { filename, csv } = await fsExportCsv(scope);
+      if (Platform.OS === "web") {
+        downloadCsvOnWeb(filename, csv);
+      } else {
+        // Native: share the CSV text via the OS share sheet.
+        await Share.share({ title: filename, message: csv });
+      }
+    } catch (e: any) {
+      Alert.alert("Export failed", String(e?.message ?? e));
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar style="dark" />
@@ -305,13 +268,11 @@ export default function Index() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.inverse} />
           }
         >
-          {/* Header */}
           <View style={styles.header} testID="app-header">
             <Text style={styles.kicker}>SHARED-SERVICE TRACKER</Text>
             <Text style={styles.title}>The Hayden{"\n"}Workspace Ledger</Text>
           </View>
 
-          {/* Acting As toggle */}
           <View style={styles.section}>
             <Text style={styles.label}>ACTING AS</Text>
             <View style={styles.toggleRow} testID="acting-as-toggle">
@@ -330,14 +291,7 @@ export default function Index() {
                   >
                     <Image source={{ uri: avatarForUser(u) }} style={styles.toggleAvatar} />
                     <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          styles.toggleName,
-                          active && { color: "#FFFFFF" },
-                        ]}
-                      >
-                        {u}
-                      </Text>
+                      <Text style={[styles.toggleName, active && { color: "#FFFFFF" }]}>{u}</Text>
                       <Text
                         style={[
                           styles.toggleSub,
@@ -353,7 +307,6 @@ export default function Index() {
             </View>
           </View>
 
-          {/* Quick Log Form */}
           <View style={styles.card} testID="log-job-card">
             <Text style={styles.h2}>Log a job</Text>
             <Text style={styles.cardSub}>
@@ -399,7 +352,6 @@ export default function Index() {
               />
             </View>
 
-            {/* Preview row */}
             <View style={styles.previewRow} testID="discount-preview">
               <View style={styles.previewCell}>
                 <Text style={styles.previewLabel}>DISCOUNT</Text>
@@ -436,7 +388,6 @@ export default function Index() {
             </TouchableOpacity>
           </View>
 
-          {/* Monthly Tally Card */}
           <MonthlyTallyCard
             summary={summary}
             month={selectedMonth}
@@ -444,7 +395,6 @@ export default function Index() {
             onOpenMonths={() => setMonthPickerOpen(true)}
           />
 
-          {/* Ledger */}
           <View style={styles.section}>
             <View style={styles.ledgerHead}>
               <Text style={styles.h2}>Jobs ledger</Text>
@@ -472,17 +422,29 @@ export default function Index() {
               )}
             </View>
 
-            {isCurrentMonth && jobs.length > 0 && (
+            <View style={styles.actionsRow}>
               <TouchableOpacity
-                testID="archive-month-btn"
-                style={styles.archiveBtn}
-                onPress={archiveMonth}
+                testID="export-csv-btn"
+                style={[styles.secondaryBtn, { flex: 1 }]}
+                onPress={() => setExportPickerOpen(true)}
                 activeOpacity={0.9}
               >
-                <Ionicons name="archive-outline" size={16} color={C.textPrimary} />
-                <Text style={styles.archiveBtnText}>ARCHIVE CURRENT MONTH</Text>
+                <Ionicons name="download-outline" size={16} color={C.textPrimary} />
+                <Text style={styles.archiveBtnText}>DOWNLOAD CSV</Text>
               </TouchableOpacity>
-            )}
+
+              {isCurrentMonth && jobs.length > 0 ? (
+                <TouchableOpacity
+                  testID="archive-month-btn"
+                  style={[styles.secondaryBtn, { flex: 1 }]}
+                  onPress={archiveMonth}
+                  activeOpacity={0.9}
+                >
+                  <Ionicons name="archive-outline" size={16} color={C.textPrimary} />
+                  <Text style={styles.archiveBtnText}>ARCHIVE MONTH</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
 
           <Text style={styles.footer}>
@@ -491,7 +453,6 @@ export default function Index() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Service picker modal */}
       <PickerModal
         visible={servicePickerOpen}
         title="Select service"
@@ -508,7 +469,6 @@ export default function Index() {
         onClose={() => setServicePickerOpen(false)}
       />
 
-      {/* Month picker modal */}
       <PickerModal
         visible={monthPickerOpen}
         title="Select month"
@@ -524,7 +484,7 @@ export default function Index() {
         }}
         onClose={() => setMonthPickerOpen(false)}
       />
-      {/* Export CSV picker modal */}
+
       <PickerModal
         visible={exportPickerOpen}
         title="Download CSV"
@@ -544,8 +504,6 @@ export default function Index() {
   );
 }
 
-// --- Sub components ----------------------------------------------------------
-
 function JobRow({ job, onDelete }: { job: Job; onDelete: () => void }) {
   const userColor = colorForUser(job.user);
   return (
@@ -560,13 +518,9 @@ function JobRow({ job, onDelete }: { job: Job; onDelete: () => void }) {
         </View>
 
         <View style={styles.jobMetaRow}>
-          <View
-            style={[styles.userBadge, { backgroundColor: softForUser(job.user) }]}
-          >
+          <View style={[styles.userBadge, { backgroundColor: softForUser(job.user) }]}>
             <View style={[styles.userDot, { backgroundColor: userColor }]} />
-            <Text style={[styles.userBadgeText, { color: userColor }]}>
-              {shortUser(job.user)}
-            </Text>
+            <Text style={[styles.userBadgeText, { color: userColor }]}>{shortUser(job.user)}</Text>
           </View>
           <Text style={styles.jobDate}>{fmtDate(job.date)}</Text>
           {job.discount_percent > 0 ? (
@@ -576,7 +530,11 @@ function JobRow({ job, onDelete }: { job: Job; onDelete: () => void }) {
           )}
         </View>
 
-        {job.notes ? <Text style={styles.jobNotes} numberOfLines={2}>{job.notes}</Text> : null}
+        {job.notes ? (
+          <Text style={styles.jobNotes} numberOfLines={2}>
+            {job.notes}
+          </Text>
+        ) : null}
       </View>
 
       <TouchableOpacity
@@ -604,7 +562,8 @@ function MonthlyTallyCard({
 }) {
   const debtor = summary?.debtor;
   const creditor = summary?.creditor;
-  const accent = debtor === USER_ANDREWS ? C.andrews : debtor === USER_BONE ? C.bone : "#FFFFFF";
+  const accent =
+    debtor === USER_ANDREWS ? C.andrews : debtor === USER_BONE ? C.bone : "#FFFFFF";
 
   return (
     <View style={[styles.tallyCard, { borderLeftColor: accent }]} testID="monthly-tally">
@@ -618,9 +577,7 @@ function MonthlyTallyCard({
         >
           <Ionicons name="calendar-outline" size={14} color="#fff" />
           <Text style={styles.monthPickerText}>{fmtMonthLabel(month)}</Text>
-          {months.length > 1 ? (
-            <Ionicons name="chevron-down" size={14} color="#fff" />
-          ) : null}
+          {months.length > 1 ? <Ionicons name="chevron-down" size={14} color="#fff" /> : null}
         </TouchableOpacity>
       </View>
 
@@ -628,7 +585,9 @@ function MonthlyTallyCard({
         <ActivityIndicator color="#fff" style={{ marginVertical: 18 }} />
       ) : summary.net_balance === 0 ? (
         <>
-          <Text style={styles.tallyAmount} testID="tally-amount">$0.00</Text>
+          <Text style={styles.tallyAmount} testID="tally-amount">
+            $0.00
+          </Text>
           <Text style={styles.tallySub}>All square — no one owes anyone this month.</Text>
         </>
       ) : (
@@ -708,9 +667,7 @@ function PickerModal({
                   <Text style={styles.modalOptionLabel}>{o.label}</Text>
                   {o.sub ? <Text style={styles.modalOptionSub}>{o.sub}</Text> : null}
                 </View>
-                {active ? (
-                  <Ionicons name="checkmark" size={20} color={C.inverse} />
-                ) : null}
+                {active ? <Ionicons name="checkmark" size={20} color={C.inverse} /> : null}
               </TouchableOpacity>
             );
           })}
@@ -720,7 +677,6 @@ function PickerModal({
   );
 }
 
-// --- Styles -------------------------------------------------------------------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1, backgroundColor: C.bg },
@@ -743,15 +699,9 @@ const styles = StyleSheet.create({
   },
 
   section: { gap: 10 },
-  label: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    color: C.textSecondary,
-  },
+  label: { fontSize: 11, fontWeight: "800", letterSpacing: 1.4, color: C.textSecondary },
   h2: { fontSize: 22, fontWeight: "800", color: C.textPrimary, letterSpacing: -0.5 },
 
-  // toggle
   toggleRow: { flexDirection: "row", gap: 10 },
   toggleBtn: {
     flex: 1,
@@ -768,7 +718,6 @@ const styles = StyleSheet.create({
   toggleName: { fontSize: 14, fontWeight: "800", color: C.textPrimary },
   toggleSub: { fontSize: 11, color: C.textSecondary, marginTop: 2 },
 
-  // card
   card: {
     backgroundColor: C.surface,
     borderWidth: 1,
@@ -790,19 +739,8 @@ const styles = StyleSheet.create({
   },
   inputText: { color: C.textPrimary, fontSize: 15, fontWeight: "600", flex: 1 },
   dollar: { fontSize: 16, color: C.textSecondary, marginRight: 6, fontWeight: "600" },
-  priceInput: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "700",
-    color: C.textPrimary,
-    paddingVertical: 0,
-  },
-  textInputFlex: {
-    flex: 1,
-    fontSize: 15,
-    color: C.textPrimary,
-    paddingVertical: 0,
-  },
+  priceInput: { flex: 1, fontSize: 18, fontWeight: "700", color: C.textPrimary, paddingVertical: 0 },
+  textInputFlex: { flex: 1, fontSize: 15, color: C.textPrimary, paddingVertical: 0 },
 
   previewRow: {
     flexDirection: "row",
@@ -823,14 +761,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 16,
   },
-  primaryBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-    letterSpacing: 2,
-  },
+  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 14, letterSpacing: 2 },
 
-  // tally
   tallyCard: {
     backgroundColor: C.inverse,
     padding: 22,
@@ -872,13 +804,8 @@ const styles = StyleSheet.create({
   tallyTotalLabel: { color: "#A1A1AA", fontSize: 10, letterSpacing: 1.2, fontWeight: "800" },
   tallyTotalVal: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 2 },
 
-  // ledger
   ledgerHead: { gap: 4 },
-  ledger: {
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
+  ledger: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   empty: { padding: 32, alignItems: "center", gap: 6 },
   emptyTitle: { fontSize: 15, fontWeight: "700", color: C.textPrimary },
   emptySub: { fontSize: 13, color: C.textSecondary, textAlign: "center" },
@@ -921,27 +848,9 @@ const styles = StyleSheet.create({
   discountText: { fontSize: 12, fontWeight: "800", color: C.discount },
   basePriceText: { fontSize: 12, color: C.textMuted },
   jobNotes: { fontSize: 13, color: C.textSecondary, marginTop: 6, fontStyle: "italic" },
-  deleteBtn: {
-    padding: 6,
-    marginTop: 2,
-  },
+  deleteBtn: { padding: 6, marginTop: 2 },
 
-  archiveBtn: {
-    marginTop: 12,
-    height: 46,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-  },
+  actionsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   secondaryBtn: {
     height: 46,
     borderWidth: 1,
@@ -963,18 +872,8 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  modalCard: {
-    backgroundColor: C.surface,
-    padding: 20,
-    paddingBottom: 32,
-    gap: 4,
-  },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: C.surface, padding: 20, paddingBottom: 32, gap: 4 },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
