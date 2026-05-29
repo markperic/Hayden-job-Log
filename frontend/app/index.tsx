@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -136,6 +137,7 @@ export default function Index() {
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey());
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [servicePickerOpen, setServicePickerOpen] = useState(false);
+  const [exportPickerOpen, setExportPickerOpen] = useState(false);
 
   const isCurrentMonth = selectedMonth === currentMonthKey();
 
@@ -237,6 +239,29 @@ export default function Index() {
         },
       },
     ]);
+  };
+
+  const exportCsv = async (scope: string) => {
+    // scope is "all" or a YYYY-MM string
+    const url = `${API_BASE}/jobs/export?month=${encodeURIComponent(scope)}`;
+    try {
+      if (Platform.OS === "web") {
+        // Trigger a download in a new tab — Content-Disposition handles the rest
+        // eslint-disable-next-line no-undef
+        window.open(url, "_blank");
+      } else {
+        const can = await Linking.canOpenURL(url);
+        if (can) {
+          await Linking.openURL(url);
+        } else {
+          Alert.alert("Cannot open URL", "Unable to start the CSV download.");
+        }
+      }
+    } catch (e: any) {
+      Alert.alert("Export failed", String(e?.message ?? e));
+    } finally {
+      setExportPickerOpen(false);
+    }
   };
 
   const archiveMonth = () => {
@@ -361,10 +386,10 @@ export default function Index() {
               />
             </View>
 
-            <Text style={[styles.label, { marginTop: 14 }]}>NOTES / CLIENT (OPTIONAL)</Text>
+            <Text style={[styles.label, { marginTop: 14 }]}>JOB NAME</Text>
             <View style={styles.input}>
               <TextInput
-                testID="notes-input"
+                testID="job-name-input"
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="e.g. Studio A — 3 x A1 prints"
@@ -498,6 +523,22 @@ export default function Index() {
           setMonthPickerOpen(false);
         }}
         onClose={() => setMonthPickerOpen(false)}
+      />
+      {/* Export CSV picker modal */}
+      <PickerModal
+        visible={exportPickerOpen}
+        title="Download CSV"
+        options={[
+          { value: "all", label: "All jobs", sub: "Every job ever logged" },
+          ...months.map((m) => ({
+            value: m,
+            label: fmtMonthLabel(m),
+            sub: m === currentMonthKey() ? "Current month" : "Calendar month",
+          })),
+        ]}
+        selected=""
+        onSelect={(v) => exportCsv(v)}
+        onClose={() => setExportPickerOpen(false)}
       />
     </SafeAreaView>
   );
@@ -895,6 +936,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  secondaryBtn: {
+    height: 46,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 8,
   },
   archiveBtnText: { color: C.textPrimary, fontSize: 12, fontWeight: "800", letterSpacing: 1.5 },
 

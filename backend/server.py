@@ -1,7 +1,10 @@
 from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import csv
+import io
 import os
 import logging
 from pathlib import Path
@@ -218,6 +221,56 @@ async def list_months():
     if current not in months:
         months.insert(0, current)
     return {"months": months, "current": current}
+
+
+@api_router.get("/jobs/export")
+async def export_jobs_csv(month: Optional[str] = None, include_archived: bool = True):
+    """Export jobs as CSV. `month=YYYY-MM` filters; omit (or 'all') for all months.
+    Archived jobs are included by default so monthly history downloads stay complete."""
+    query: dict = {}
+    if month and month.lower() != "all":
+        query["month"] = month
+    if not include_archived:
+        query["archived"] = False
+
+    cursor = db.jobs.find(query, {"_id": 0}).sort("date", 1)
+    docs = await cursor.to_list(length=100000)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Date",
+        "Month",
+        "User",
+        "Service",
+        "Base Price",
+        "Discount %",
+        "Final Cost",
+        "Job Name",
+        "Archived",
+        "ID",
+    ])
+    for d in docs:
+        writer.writerow([
+            d.get("date", ""),
+            d.get("month", ""),
+            d.get("user", ""),
+            d.get("service", ""),
+            f"{float(d.get('base_price', 0)):.2f}",
+            f"{float(d.get('discount_percent', 0)):.2f}",
+            f"{float(d.get('final_cost', 0)):.2f}",
+            d.get("notes", ""),
+            "yes" if d.get("archived") else "no",
+            d.get("id", ""),
+        ])
+
+    filename_part = month if (month and month.lower() != "all") else "all"
+    filename = f"hayden-tracker-{filename_part}.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api_router.post("/jobs/archive")
