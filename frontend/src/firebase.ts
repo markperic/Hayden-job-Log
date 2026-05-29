@@ -4,6 +4,7 @@
 
 import { initializeApp, getApps } from "firebase/app";
 import {
+  initializeFirestore,
   getFirestore,
   collection,
   query,
@@ -28,8 +29,22 @@ const firebaseConfig = {
 
 const app = getApps()[0] ?? initializeApp(firebaseConfig);
 // Named database (created in GCP console as "haydens-job-tracker" rather than
-// the auto "(default)"). Pass the id as the 2nd arg to getFirestore.
-export const db = getFirestore(app, "haydens-job-tracker");
+// the auto "(default)"). Pass the id as the 2nd arg to initializeFirestore.
+// experimentalAutoDetectLongPolling is required for React Native and for any
+// environment where the gRPC WebChannel transport silently hangs (corp proxies,
+// some preview iframes). It auto-detects and falls back to HTTP long-polling.
+let _db;
+try {
+  _db = initializeFirestore(
+    app,
+    { experimentalAutoDetectLongPolling: true },
+    "haydens-job-tracker",
+  );
+} catch {
+  // initializeFirestore throws if called more than once (HMR); fall back.
+  _db = getFirestore(app, "haydens-job-tracker");
+}
+export const db = _db;
 
 // ---- Domain --------------------------------------------------------------
 export const USER_ANDREWS = "Hayden Andrews";

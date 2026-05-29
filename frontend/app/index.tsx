@@ -117,6 +117,7 @@ export default function Index() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [months, setMonths] = useState<string[]>([currentMonthKey()]);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey());
@@ -139,6 +140,7 @@ export default function Index() {
 
   const loadAll = useCallback(async (month: string) => {
     try {
+      setLoadError(null);
       const [jobsData, sumData, monthsData] = await Promise.all([
         fsListJobs({ month }),
         fsGetSummary(month),
@@ -148,12 +150,19 @@ export default function Index() {
       setSummary(sumData);
       setMonths(monthsData);
     } catch (e: any) {
-      console.warn("loadAll error", e);
-      Alert.alert(
-        "Could not reach Firestore",
-        String(e?.message ?? e) +
-          "\n\nCheck that the Firestore database is created and security rules allow reads.",
-      );
+      const msg = `${e?.code ?? "error"}: ${e?.message ?? String(e)}`;
+      console.warn("Firestore loadAll error:", msg, e);
+      setLoadError(msg);
+      // Surface a non-null summary so the spinner stops.
+      setSummary({
+        month,
+        total_andrews: 0,
+        total_bone: 0,
+        net_balance: 0,
+        debtor: null,
+        creditor: null,
+        job_count: 0,
+      });
     }
   }, []);
 
@@ -272,6 +281,13 @@ export default function Index() {
             <Text style={styles.kicker}>SHARED-SERVICE TRACKER</Text>
             <Text style={styles.title}>The Hayden{"\n"}Workspace Ledger</Text>
           </View>
+
+          {loadError ? (
+            <View style={styles.errorBanner} testID="firestore-error">
+              <Text style={styles.errorTitle}>Firestore is unreachable</Text>
+              <Text style={styles.errorBody}>{loadError}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.section}>
             <Text style={styles.label}>ACTING AS</Text>
@@ -871,6 +887,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 16,
   },
+
+  errorBanner: {
+    backgroundColor: "#FEE2E2",
+    borderWidth: 1,
+    borderColor: C.andrews,
+    padding: 14,
+    gap: 4,
+  },
+  errorTitle: { color: C.andrews, fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  errorBody: { color: "#7F1D1D", fontSize: 12, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: C.surface, padding: 20, paddingBottom: 32, gap: 4 },
